@@ -6,9 +6,11 @@ import dash
 from dash.dependencies import Input, Output, State
 from dash import dcc, html, dash_table
 from datetime import datetime
+import plotly.graph_objs as go
 import plotly.express as px
+import dash_bootstrap_components as dbc
 
-app = dash.Dash(__name__)
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.DARKLY])
 
 colors = {
     "graphBackground": "#f5f5f5",
@@ -43,6 +45,7 @@ def parse_content(contents, filename):
     decoded = base64.b64decode(content_string)
     try:
         df = pd.read_csv(io.StringIO(decoded.decode("utf-8")))
+        df["ma"] = df["Adj Close"].rolling(3).median()
     except Exception as e:
         print(e)
         html.Div([
@@ -70,11 +73,11 @@ def update_graph(contents, filename):
     #         plot_bgcolor=colors["graphBackground"],
     #         paper_bgcolor=colors["graphBackground"])
     # }
-    fig = px.scatter()
+    fig = px.line(template="plotly_dark")
     if contents:
         df = parse_content(contents, filename)
         # df = df.set_index(df.columns[0])
-        fig = px.scatter(df, x="date", y="prices")
+        fig = px.line(df, x="Date", y=["Adj Close", "ma"], template="plotly_dark")
 
     return fig
 
