@@ -1,6 +1,7 @@
 import base64
 import io
 
+import numpy as np
 import pandas as pd
 import dash
 from dash.dependencies import Input, Output, State
@@ -9,6 +10,7 @@ from datetime import datetime
 import plotly.graph_objs as go
 import plotly.express as px
 import dash_bootstrap_components as dbc
+from scipy.signal import argrelextrema
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.DARKLY])
 
@@ -39,13 +41,45 @@ app.layout = html.Div([
     html.Div(id="output-data-upload")
 ])
 
-def parse_content(contents, filename):
+def parse_content(contents):
     content_type, content_string = contents.split(",")
 
     decoded = base64.b64decode(content_string)
     try:
         df = pd.read_csv(io.StringIO(decoded.decode("utf-8")))
-        df["ma"] = df["Adj Close"].rolling(3).median()
+
+        df["interpolation"] = 0
+        try:
+            mins = argrelextrema(df["Adj Close"].values, np.less, order=3)
+            maxs = argrelextrema(df["Adj Close"].values, np.greater, order=3)
+        except Exception as e:
+            print("here")
+            print(e)
+
+        prev_end = 0
+        for (min_ind, max_ind) in zip(mins[0], maxs[0]):
+            if min_ind != prev_end:
+                xdata = list(range(prev_end, min_ind+1))
+                if len(xdata) > 1:
+                    ydata = df.iloc[prev_end:min_ind+1]["Adj Close"].values
+                    with np.errstate(divide="ignore", invalid="ignore"):
+                        z = np.polyfit(xdata, ydata, 3)
+                        p = np.poly1d(z)
+                        yfit = p(xdata)
+                    for i, x in enumerate(xdata):
+                        df.iat[x, df.columns.shape[0]-1] = yfit[i]
+            if min_ind != max_ind:
+                xdata = list(range(prev_end, min_ind + 1))
+                if len(xdata) > 1:
+                    ydata = df.iloc[prev_end:min_ind + 1]["Adj Close"].values
+                    with np.errstate(divide="ignore", invalid="ignore"):
+                        z = np.polyfit(xdata, ydata, 3)
+                        p = np.poly1d(z)
+                        yfit = p(xdata)
+                    for i, x in enumerate(xdata):
+                        df.iat[x, df.columns.shape[0]-1] = yfit[i]
+                prev_end = max_ind
+
     except Exception as e:
         print(e)
         html.Div([
@@ -64,10 +98,9 @@ def parse_content(contents, filename):
 
 @app.callback(Output("plot", "figure"),
               [
-                  Input("upload-data", "contents"),
-                  Input("upload-data", "filename")
+                  Input("upload-data", "contents")
               ])
-def update_graph(contents, filename):
+def update_graph(contents):
     # fig = {
     #     "layout": go.Layout(
     #         plot_bgcolor=colors["graphBackground"],
@@ -75,9 +108,9 @@ def update_graph(contents, filename):
     # }
     fig = px.line(template="plotly_dark")
     if contents:
-        df = parse_content(contents, filename)
+        df = parse_content(contents)
         # df = df.set_index(df.columns[0])
-        fig = px.line(df, x="Date", y=["Adj Close", "ma"], template="plotly_dark")
+        fig = px.line(df, x="Date", y=["Adj Close", "interpolation"], template="plotly_dark")
 
     return fig
 
